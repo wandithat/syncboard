@@ -6,6 +6,10 @@ export const boardsApi = {
         const response = await apiClient.get('/boards');
         return response.data;
     },
+    get: async (id: string): Promise<Board> => {
+        const response = await apiClient.get(`/boards/${id}`);
+        return response.data;
+    },
     create: async (title: string): Promise<Board> => {
         const response = await apiClient.post('/boards', { title });
         return response.data;

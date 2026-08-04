@@ -48,6 +48,21 @@ func (h *CardHandler) Move(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "moved"})
 }
 
+func (h *CardHandler) GetByColumn(w http.ResponseWriter, r *http.Request) {
+	columnID := mux.Vars(r)["column_id"]
+
+	cards, err := h.repo.GetByColumnID(r.Context(), columnID)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if cards == nil {
+		cards = []models.Card{} // чтобы в JSON приходил [], а не null
+	}
+
+	jsonResponse(w, http.StatusOK, cards)
+}
+
 func (h *CardHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	if err := h.repo.Delete(r.Context(), id); err != nil {

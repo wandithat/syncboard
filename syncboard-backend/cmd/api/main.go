@@ -69,6 +69,7 @@ func main() {
 	api.HandleFunc("/columns", columnHandler.Create).Methods("POST")
 
 	// Cards
+	api.HandleFunc("/columns/{column_id}/cards", cardHandler.GetByColumn)
 	api.HandleFunc("/cards", cardHandler.Create).Methods("POST")
 	api.HandleFunc("/cards/{id}/move", cardHandler.Move).Methods("PATCH")
 	api.HandleFunc("/cards/{id}", cardHandler.Delete).Methods("DELETE")

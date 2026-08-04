@@ -2,12 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { ProtectedRoute } from './components/ProtectedRoute';
-
-// Заглушки для страниц (создадим их на следующих шагах)
-const Login = () => <div className="p-10">Страница Login (в разработке)</div>;
-const Register = () => <div className="p-10">Страница Register (в разработке)</div>;
-const BoardsList = () => <div className="p-10">Список досок (в разработке)</div>;
-const BoardView = () => <div className="p-10">Просмотр доски (в разработке)</div>;
+import { Login } from './pages/Login';
+import { Register } from './pages/Register';
+import { BoardsList } from './pages/BoardsList';
+import { BoardView } from './pages/BoardView';
 
 function App() {
   const init = useAuthStore((state) => state.init);
@@ -19,9 +17,11 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Публичные страницы */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        
+
+        {/* Защищённые страницы */}
         <Route
           path="/boards"
           element={
@@ -38,8 +38,9 @@ function App() {
             </ProtectedRoute>
           }
         />
-        
-        <Route path="/" element={<Navigate to="/boards" replace />} />
+
+        {/* Все остальные пути -> на список досок */}
+        <Route path="*" element={<Navigate to="/boards" replace />} />
       </Routes>
     </BrowserRouter>
   );
