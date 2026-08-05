@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import type {
+  DragStartEvent,
+  DragOverEvent,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import { SortableContext, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { boardsApi } from '../api/boards';
 import { columnsApi } from '../api/columns';
 import { cardsApi } from '../api/cards';
-import type { Board, Card, Column } from '../types';
-
-interface ColumnWithCards extends Column {
-  cards: Card[];
-}
+import type { Board, Card, ColumnWithCards } from '../types';
+import { SortableColumn } from '../components/SortableColumn';
+import { useBoardState } from '../hooks/useBoardState';
 
 interface BoardData extends Board {
   columns: ColumnWithCards[];
@@ -15,20 +27,16 @@ interface BoardData extends Board {
 
 export const BoardView = () => {
   const { id } = useParams<{ id: string }>();
-  const [board, setBoard] = useState<BoardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialBoard, setInitialBoard] = useState<BoardData | null>(null);
 
   const loadBoard = useCallback(async () => {
     if (!id) return;
 
     try {
-      // 1. Загружаем доску
       const boardData = await boardsApi.get(id);
-
-      // 2. Загружаем её колонки
       const columns = await columnsApi.getByBoard(id);
 
-      // 3. Загружаем карточки каждой колонки (параллельно)
       const columnsWithCards: ColumnWithCards[] = await Promise.all(
         columns.map(async (col) => {
           const cards = await cardsApi.getByColumn(col.id);
@@ -36,7 +44,7 @@ export const BoardView = () => {
         })
       );
 
-      setBoard({ ...boardData, columns: columnsWithCards });
+      setInitialBoard({ ...boardData, columns: columnsWithCards });
     } catch (err) {
       console.error('Ошибка загрузки доски:', err);
     } finally {
@@ -48,56 +56,165 @@ export const BoardView = () => {
     loadBoard();
   }, [loadBoard]);
 
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen">Загрузка...</div>;
+  }
+
+  if (!initialBoard) {
+    return <div className="flex justify-center items-center h-screen">Доска не найдена</div>;
+  }
+
+  return <BoardContent initialBoard={initialBoard} onReload={loadBoard} />;
+};
+
+interface BoardContentProps {
+  initialBoard: BoardData;
+  onReload: () => void;
+}
+
+const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
+  const {
+    board,
+    moveCardWithinColumn,
+    moveCardBetweenColumns,
+    addCardToColumn,
+    removeCardFromColumn,
+  } = useBoardState(initialBoard);
+
+  const [activeCard, setActiveCard] = useState<Card | null>(null);
+
+  // Сенсоры: мышь с задержкой, чтобы клик не начинал drag
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // 5px движения для старта drag
+      },
+    })
+  );
+
+  // Найти колонку по ID карточки
+  const findColumnByCardId = (cardId: string): ColumnWithCards | undefined => {
+    return board.columns.find((col) => col.cards.some((c) => c.id === cardId));
+  };
+
+  // === DRAG START ===
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    if (active.data.current?.type === 'card') {
+      setActiveCard(active.data.current.card);
+    }
+  };
+
+  // === DRAG OVER: live-обновление при перемещении ===
+  const handleDragOver = (event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    if (activeId === overId) return;
+
+    // Работаем только с карточками
+    if (active.data.current?.type !== 'card') return;
+
+    const activeColumn = findColumnByCardId(activeId);
+    
+    // over может быть карточкой или самой колонкой (если бросаем в пустую)
+    const overColumn =
+      findColumnByCardId(overId) || board.columns.find((c) => c.id === overId);
+
+    if (!activeColumn || !overColumn) return;
+
+    // Если карточка перемещается в другую колонку
+    if (activeColumn.id !== overColumn.id) {
+      const overIndex = overColumn.cards.findIndex((c) => c.id === overId);
+      
+      moveCardBetweenColumns(
+        activeId,
+        activeColumn.id,
+        overColumn.id,
+        overIndex >= 0 ? overIndex : overColumn.cards.length
+      );
+    }
+  };
+
+  // === DRAG END: финализация и сохранение ===
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveCard(null);
+
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    if (activeId === overId) return;
+
+    if (active.data.current?.type !== 'card') return;
+
+    const column = findColumnByCardId(activeId);
+    if (!column) return;
+
+    const oldIndex = column.cards.findIndex((c) => c.id === activeId);
+    const newIndex = column.cards.findIndex((c) => c.id === overId);
+
+    // Перемещение внутри колонки
+    if (oldIndex !== newIndex && newIndex !== -1) {
+      moveCardWithinColumn(column.id, oldIndex, newIndex);
+    }
+
+    // Сохраняем на сервер
+    const card = column.cards.find((c) => c.id === activeId);
+    if (!card) return;
+
+    try {
+      await cardsApi.move(activeId, card.column_id, card.position);
+    } catch (err) {
+      console.error('Ошибка сохранения:', err);
+      // Откат: перезагружаем доску с сервера
+      onReload();
+      alert('Не удалось сохранить изменения');
+    }
+  };
+
+  // === Добавление колонки ===
   const handleAddColumn = async () => {
     const title = prompt('Название новой колонки:');
-    if (title?.trim() && board) {
+    if (title?.trim()) {
       try {
         await columnsApi.create(board.id, title.trim());
-        await loadBoard();
+        onReload();
       } catch (err) {
         alert('Ошибка создания колонки');
       }
     }
   };
 
+  // === Добавление карточки ===
   const handleAddCard = async (columnId: string) => {
     const title = prompt('Название карточки:');
     if (title?.trim()) {
       try {
-        await cardsApi.create(columnId, title.trim());
-        await loadBoard();
+        const newCard = await cardsApi.create(columnId, title.trim());
+        addCardToColumn(columnId, newCard);
       } catch (err) {
         alert('Ошибка создания карточки');
       }
     }
   };
 
+  // === Удаление карточки ===
   const handleDeleteCard = async (cardId: string) => {
     if (confirm('Удалить эту карточку?')) {
       try {
         await cardsApi.delete(cardId);
-        await loadBoard();
+        removeCardFromColumn(cardId);
       } catch (err) {
         alert('Ошибка удаления');
       }
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen text-gray-500">
-        Загрузка доски...
-      </div>
-    );
-  }
-
-  if (!board) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        Доска не найдена
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-blue-50 flex flex-col">
@@ -110,70 +227,49 @@ export const BoardView = () => {
         </div>
       </header>
 
-      <main className="flex-1 overflow-x-auto p-6">
-        <div className="flex space-x-4 items-start">
-          {board.columns
-            .sort((a, b) => a.position - b.position)
-            .map((column) => (
-              <ColumnView
-                key={column.id}
-                column={column}
-                onAddCard={() => handleAddCard(column.id)}
-                onDeleteCard={handleDeleteCard}
-              />
-            ))}
-
-          <button
-            onClick={handleAddColumn}
-            className="flex-shrink-0 w-80 h-12 bg-blue-100/50 hover:bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center text-blue-700 font-medium transition-colors"
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <main className="flex-1 overflow-x-auto p-6">
+          <SortableContext
+            items={board.columns.map((c) => c.id)}
+            strategy={horizontalListSortingStrategy}
           >
-            + Добавить колонку
-          </button>
-        </div>
-      </main>
-    </div>
-  );
-};
+            <div className="flex space-x-4 items-start">
+              {board.columns
+                .sort((a, b) => a.position - b.position)
+                .map((column) => (
+                  <SortableColumn
+                    key={column.id}
+                    column={column}
+                    onAddCard={handleAddCard}
+                    onDeleteCard={handleDeleteCard}
+                  />
+                ))}
 
-/* ---------- Колонка ---------- */
-
-interface ColumnViewProps {
-  column: ColumnWithCards;
-  onAddCard: () => void;
-  onDeleteCard: (cardId: string) => void;
-}
-
-const ColumnView = ({ column, onAddCard, onDeleteCard }: ColumnViewProps) => {
-  return (
-    <div className="flex-shrink-0 w-80 bg-gray-100 rounded-lg p-3 shadow-sm">
-      <h3 className="font-semibold text-gray-700 mb-3 px-1">{column.title}</h3>
-
-      <div className="space-y-2 min-h-[50px]">
-        {column.cards
-          .sort((a, b) => a.position - b.position)
-          .map((card) => (
-            <div
-              key={card.id}
-              className="bg-white p-3 rounded shadow-sm hover:shadow-md cursor-pointer group relative"
-            >
-              <p className="text-sm text-gray-800 pr-6">{card.title}</p>
               <button
-                onClick={() => onDeleteCard(card.id)}
-                title="Удалить карточку"
-                className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-lg leading-none"
+                onClick={handleAddColumn}
+                className="flex-shrink-0 w-80 h-12 bg-blue-100/50 hover:bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center text-blue-700 font-medium transition-colors"
               >
-                ×
+                + Добавить колонку
               </button>
             </div>
-          ))}
-      </div>
+          </SortableContext>
+        </main>
 
-      <button
-        onClick={onAddCard}
-        className="w-full mt-3 py-2 text-sm text-gray-600 hover:bg-gray-200 rounded-md transition-colors text-left px-2"
-      >
-        + Добавить карточку
-      </button>
+        {/* DragOverlay: "призрак" карточки, следующий за курсором */}
+        <DragOverlay>
+          {activeCard && (
+            <div className="bg-white p-3 rounded shadow-lg rotate-3 opacity-90">
+              <p className="text-sm text-gray-800">{activeCard.title}</p>
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 };

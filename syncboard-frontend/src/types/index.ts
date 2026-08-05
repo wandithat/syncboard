@@ -28,6 +28,12 @@ export interface Card {
   updated_at: string;
 }
 
+// НОВОЕ: колонка с вложенными карточками
+export interface ColumnWithCards extends Column {
+  cards: Card[];
+}
+
+// НОВОЕ: доска с колонками и карточками
 export interface BoardWithDetails extends Board {
-  columns: (Column & {cards: Card[]})[]
+  columns: ColumnWithCards[];
 }
