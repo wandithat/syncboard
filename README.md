@@ -11,6 +11,8 @@
 
 ## Запуск backend
 
+Откройте отдельный терминал из корня проекта:
+
 ```bash
 cd syncboard-backend
 cp .env.example .env
@@ -18,6 +20,29 @@ docker compose up -d postgres
 migrate -path migrations -database "postgres://postgres:postgres123@localhost:5432/syncboard?sslmode=disable" up
 go run ./cmd/api
 ```
+
+При первом запуске Go автоматически загрузит зависимости, указанные в `go.mod`. Их контрольные суммы должны быть записаны в `go.sum`; в этой версии проекта контрольные суммы `github.com/gorilla/websocket v1.5.3` уже добавлены.
+
+### Если Go сообщает `missing go.sum entry`
+
+Эта ошибка означает, что для зависимости не записана контрольная сумма в `go.sum`. Не нужно выполнять `go get syncboard/internal/realtime`: `syncboard/internal/realtime` — это пакет самого проекта, а не внешний модуль.
+
+Выполните команды **из папки `syncboard-backend`**:
+
+```bash
+go mod tidy
+go mod download
+go run ./cmd/api
+```
+
+`go mod tidy` проверит импорты и приведёт `go.mod`/`go.sum` в соответствие с используемыми пакетами. Если команда изменит эти файлы, сохраните изменения в Git:
+
+```bash
+git add go.mod go.sum
+git commit -m "fix: update Go module checksums"
+```
+
+Если загрузка зависимостей завершается сетевой ошибкой, проверьте доступ к `proxy.golang.org` и повторите команды после восстановления соединения.
 
 Backend слушает `http://localhost:8080`; health check: `GET /health`.
 
