@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"syncboard/internal/models"
 )
 
@@ -58,6 +59,60 @@ func (r *ColumnRepository) GetByBoardID(ctx context.Context, boardID string) ([]
 		cols = append(cols, c)
 	}
 	return cols, nil
+}
+
+// ReorderColumns stores the requested column order. The board row is locked so
+// concurrent reorder/create operations for the same board cannot interleave.
+// The request must contain every column on the board exactly once.
+func (r *ColumnRepository) ReorderColumns(ctx context.Context, boardID string, columnIDs []string) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var lockedBoardID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM boards WHERE id = $1 FOR UPDATE`, boardID).Scan(&lockedBoardID); err != nil {
+		return err
+	}
+
+	rows, err := tx.Query(ctx, `SELECT id::text FROM columns WHERE board_id = $1 FOR UPDATE`, boardID)
+	if err != nil {
+		return err
+	}
+	existing := make(map[string]struct{})
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[id] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	if len(columnIDs) != len(existing) {
+		return fmt.Errorf("column_ids must contain all %d columns on the board", len(existing))
+	}
+	seen := make(map[string]struct{}, len(columnIDs))
+	for position, id := range columnIDs {
+		if _, ok := existing[id]; !ok {
+			return fmt.Errorf("column %q does not belong to board", id)
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("duplicate column id %q", id)
+		}
+		seen[id] = struct{}{}
+		if _, err := tx.Exec(ctx, `UPDATE columns SET position = $1 WHERE id = $2 AND board_id = $3`, position, id, boardID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *ColumnRepository) UpdateTitle(ctx context.Context, id, title string) error {
