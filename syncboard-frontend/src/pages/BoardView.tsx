@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useAuthStore } from '../store/authStore';
 import { Link, useParams } from 'react-router-dom';
 import {
   DndContext,
@@ -29,6 +30,7 @@ export const BoardView = () => {
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
   const [initialBoard, setInitialBoard] = useState<BoardData | null>(null);
+  const token = useAuthStore((state) => state.token);
 
   const loadBoard = useCallback(async () => {
     if (!id) return;
@@ -55,6 +57,46 @@ export const BoardView = () => {
   useEffect(() => {
     loadBoard();
   }, [loadBoard]);
+  useEffect(() => {
+    if (!id || !token) return;
+
+    const wsBase = (import.meta.env.VITE_WS_URL || 'ws://localhost:8080').replace(/\/$/, '');
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let refreshTimer: number | undefined;
+    let retryDelay = 1000;
+    let stopped = false;
+
+    const connect = () => {
+      if (stopped) return;
+      socket = new WebSocket(`${wsBase}/ws/boards/${id}?token=${encodeURIComponent(token)}`);
+
+      socket.onopen = () => {
+        retryDelay = 1000;
+        // Получаем актуальное состояние после переподключения и возможной потери событий.
+        void loadBoard();
+      };
+      socket.onmessage = () => {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => void loadBoard(), 100);
+      };
+      socket.onclose = () => {
+        if (stopped) return;
+        reconnectTimer = window.setTimeout(connect, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 15000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      window.clearTimeout(reconnectTimer);
+      window.clearTimeout(refreshTimer);
+      socket?.close();
+    };
+  }, [id, token, loadBoard]);
+
 
   if (loading) {
     return <div className="flex justify-center items-center h-screen">Загрузка...</div>;
@@ -108,71 +150,48 @@ const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
   // === DRAG OVER: live-обновление при перемещении ===
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
-    if (!over) return;
-
+    if (!over || active.data.current?.type !== 'card') return;
     const activeId = String(active.id);
     const overId = String(over.id);
-
     if (activeId === overId) return;
 
-    // Работаем только с карточками
-    if (active.data.current?.type !== 'card') return;
-
     const activeColumn = findColumnByCardId(activeId);
-    
-    // over может быть карточкой или самой колонкой (если бросаем в пустую)
-    const overColumn =
-      findColumnByCardId(overId) || board.columns.find((c) => c.id === overId);
-
+    const overColumn = findColumnByCardId(overId) || board.columns.find((c) => c.id === overId);
     if (!activeColumn || !overColumn) return;
 
-    // Если карточка перемещается в другую колонку
-    if (activeColumn.id !== overColumn.id) {
-      const overIndex = overColumn.cards.findIndex((c) => c.id === overId);
-      
-      moveCardBetweenColumns(
-        activeId,
-        activeColumn.id,
-        overColumn.id,
-        overIndex >= 0 ? overIndex : overColumn.cards.length
-      );
+    const overIndex = overColumn.cards.findIndex((c) => c.id === overId);
+    if (activeColumn.id === overColumn.id) {
+      const activeIndex = activeColumn.cards.findIndex((c) => c.id === activeId);
+      if (activeIndex >= 0 && overIndex >= 0 && activeIndex !== overIndex) {
+        moveCardWithinColumn(activeColumn.id, activeIndex, overIndex);
+      }
+      return;
     }
+    moveCardBetweenColumns(
+      activeId, activeColumn.id, overColumn.id,
+      overIndex >= 0 ? overIndex : overColumn.cards.length
+    );
   };
 
   // === DRAG END: финализация и сохранение ===
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCard(null);
-
-    if (!over) return;
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-
-    if (activeId === overId) return;
-
+    if (!over) {
+      onReload();
+      return;
+    }
     if (active.data.current?.type !== 'card') return;
 
+    const activeId = String(active.id);
     const column = findColumnByCardId(activeId);
-    if (!column) return;
-
-    const oldIndex = column.cards.findIndex((c) => c.id === activeId);
-    const newIndex = column.cards.findIndex((c) => c.id === overId);
-
-    // Перемещение внутри колонки
-    if (oldIndex !== newIndex && newIndex !== -1) {
-      moveCardWithinColumn(column.id, oldIndex, newIndex);
-    }
-
-    // Сохраняем на сервер
-    const card = column.cards.find((c) => c.id === activeId);
-    if (!card) return;
+    const card = column?.cards.find((c) => c.id === activeId);
+    if (!column || !card) return;
 
     try {
-      await cardsApi.move(activeId, card.column_id, card.position);
+      await cardsApi.move(activeId, column.id, card.position);
     } catch (err) {
       console.error('Ошибка сохранения:', err);
-      // Откат: перезагружаем доску с сервера
       onReload();
       alert('Не удалось сохранить изменения');
     }
@@ -233,6 +252,10 @@ const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={() => {
+          setActiveCard(null);
+          onReload();
+        }}
       >
         <main className="flex-1 overflow-x-auto p-6">
           <SortableContext
@@ -240,7 +263,7 @@ const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
             strategy={horizontalListSortingStrategy}
           >
             <div className="flex space-x-4 items-start">
-              {board.columns
+              {[...board.columns]
                 .sort((a, b) => a.position - b.position)
                 .map((column) => (
                   <SortableColumn

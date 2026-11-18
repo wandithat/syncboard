@@ -1,8 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BoardWithDetails, Card } from '../types';
 
 export const useBoardState = (initialBoard: BoardWithDetails) => {
   const [board, setBoard] = useState<BoardWithDetails>(initialBoard);
+  useEffect(() => setBoard(initialBoard), [initialBoard]);
+
+  useEffect(() => {
+    setBoard(initialBoard);
+  }, [initialBoard]);
 
   // Переместить карточку в пределах одной колонки
   const moveCardWithinColumn = (
@@ -16,7 +21,9 @@ export const useBoardState = (initialBoard: BoardWithDetails) => {
         if (col.id !== columnId) return col;
         
         const cards = [...col.cards];
+        if (fromIndex < 0 || fromIndex >= cards.length || toIndex < 0 || toIndex >= cards.length) return col;
         const [moved] = cards.splice(fromIndex, 1);
+        if (!moved) return col;
         cards.splice(toIndex, 0, moved);
         
         // Обновляем позиции всех карточек в колонке
