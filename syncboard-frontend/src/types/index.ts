@@ -9,6 +9,7 @@ export interface Board {
   title: string;
   owner_id: string;
   created_at: string;
+  can_invite?: boolean;
 }
 
 export interface Column {

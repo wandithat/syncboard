@@ -12,4 +12,8 @@ export const columnsApi = {
     const response = await apiClient.post('/columns', { board_id: boardId, title });
     return response.data;
   },
+
+  reorder: async (boardId: string, columnIds: string[]): Promise<void> => {
+    await apiClient.patch(`/boards/${boardId}/columns/reorder`, { column_ids: columnIds });
+  },
 };

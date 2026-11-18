@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 const loginSchema = z.object({
   email: z.string().email('Введите корректный email'),
-  password: z.string().min(6, 'Минимум 6 символов'),
+  password: z.string().min(1, 'Введите пароль'),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;

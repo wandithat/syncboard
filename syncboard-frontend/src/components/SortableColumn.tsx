@@ -60,7 +60,7 @@ export const SortableColumn = ({
       {/* Список карточек */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
         <div className="space-y-2 min-h-[50px]">
-          {column.cards
+          {[...column.cards]
             .sort((a, b) => a.position - b.position)
             .map((card) => (
               <SortableCard key={card.id} card={card} onDelete={onDeleteCard} />

@@ -1,8 +1,24 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BoardWithDetails, Card } from '../types';
 
 export const useBoardState = (initialBoard: BoardWithDetails) => {
   const [board, setBoard] = useState<BoardWithDetails>(initialBoard);
+  useEffect(() => {
+    setBoard(initialBoard);
+  }, [initialBoard]);
+
+  const reorderColumns = (orderedIds: string[]) => {
+    setBoard((prev) => {
+      const byId = new Map(prev.columns.map((column) => [column.id, column]));
+      const columns = orderedIds
+        .map((id, position) => {
+          const column = byId.get(id);
+          return column ? { ...column, position } : undefined;
+        })
+        .filter((column): column is NonNullable<typeof column> => Boolean(column));
+      return { ...prev, columns };
+    });
+  };
 
   // Переместить карточку в пределах одной колонки
   const moveCardWithinColumn = (
@@ -16,7 +32,9 @@ export const useBoardState = (initialBoard: BoardWithDetails) => {
         if (col.id !== columnId) return col;
         
         const cards = [...col.cards];
+        if (fromIndex < 0 || fromIndex >= cards.length || toIndex < 0 || toIndex >= cards.length) return col;
         const [moved] = cards.splice(fromIndex, 1);
+        if (!moved) return col;
         cards.splice(toIndex, 0, moved);
         
         // Обновляем позиции всех карточек в колонке
@@ -97,6 +115,7 @@ export const useBoardState = (initialBoard: BoardWithDetails) => {
   return {
     board,
     setBoard,
+    reorderColumns,
     moveCardWithinColumn,
     moveCardBetweenColumns,
     addCardToColumn,

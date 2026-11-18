@@ -7,7 +7,7 @@ import { useState } from 'react';
 
 const registerSchema = z.object({
   email: z.string().email('Введите корректный email'),
-  password: z.string().min(6, 'Минимум 6 символов'),
+  password: z.string().min(8, 'Минимум 8 символов'),
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
