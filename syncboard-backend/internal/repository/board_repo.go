@@ -23,7 +23,16 @@ func (r *BoardRepository) Create(ctx context.Context, board *models.Board) error
 
 	err = tx.QueryRow(ctx, `
 		INSERT INTO boards (title, owner_id) VALUES ($1, $2)
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO boards (title, owner_id) VALUES ($1, $2)
 		RETURNING id, created_at
+	`, board.Title, board.OwnerID).Scan(&board.ID, &board.CreatedAt)
 	`, board.Title, board.OwnerID).Scan(&board.ID, &board.CreatedAt)
 	if err != nil {
 		return err
@@ -31,7 +40,13 @@ func (r *BoardRepository) Create(ctx context.Context, board *models.Board) error
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO board_members (board_id, user_id, role) VALUES ($1, $2, 'admin')
+	_, err = tx.Exec(ctx, `
+		INSERT INTO board_members (board_id, user_id, role) VALUES ($1, $2, 'admin')
 	`, board.ID, board.OwnerID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 	if err != nil {
 		return err
 	}

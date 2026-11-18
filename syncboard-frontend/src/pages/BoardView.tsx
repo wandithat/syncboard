@@ -32,6 +32,7 @@ export const BoardView = () => {
   const [loading, setLoading] = useState(true);
   const [initialBoard, setInitialBoard] = useState<BoardData | null>(null);
   const token = useAuthStore((state) => state.token);
+  const token = useAuthStore((state) => state.token);
 
   const loadBoard = useCallback(async () => {
     if (!id) return;
@@ -141,6 +142,7 @@ const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over || active.data.current?.type !== 'card') return;
+    if (!over || active.data.current?.type !== 'card') return;
     const activeId = String(active.id);
     const overId = String(over.id);
     if (activeId === overId) return;
@@ -187,6 +189,7 @@ const BoardContent = ({ initialBoard, onReload }: BoardContentProps) => {
     const card = column?.cards.find((item) => item.id === activeId);
     if (!column || !card) return;
     try {
+      await cardsApi.move(activeId, column.id, card.position);
       await cardsApi.move(activeId, column.id, card.position);
     } catch (err) {
       console.error('Ошибка сохранения карточки:', err);

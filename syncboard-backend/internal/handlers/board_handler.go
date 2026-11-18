@@ -28,6 +28,7 @@ func (h *BoardHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Title = strings.TrimSpace(req.Title)
+	req.Title = strings.TrimSpace(req.Title)
 	if req.Title == "" {
 		jsonError(w, http.StatusBadRequest, "title is required")
 		return

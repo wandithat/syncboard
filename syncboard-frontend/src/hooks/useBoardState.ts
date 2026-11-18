@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { BoardWithDetails, Card } from '../types';
 
 export const useBoardState = (initialBoard: BoardWithDetails) => {
@@ -33,7 +34,9 @@ export const useBoardState = (initialBoard: BoardWithDetails) => {
         
         const cards = [...col.cards];
         if (fromIndex < 0 || fromIndex >= cards.length || toIndex < 0 || toIndex >= cards.length) return col;
+        if (fromIndex < 0 || fromIndex >= cards.length || toIndex < 0 || toIndex >= cards.length) return col;
         const [moved] = cards.splice(fromIndex, 1);
+        if (!moved) return col;
         if (!moved) return col;
         cards.splice(toIndex, 0, moved);
         

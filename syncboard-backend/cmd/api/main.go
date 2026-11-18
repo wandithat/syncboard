@@ -34,6 +34,7 @@ func main() {
 	columnRepo := repository.NewColumnRepository(db)
 	cardRepo := repository.NewCardRepository(db)
 	hub := realtime.NewHub()
+	hub := realtime.NewHub()
 
 	// Services
 	authService := service.NewAuthService(userRepo, cfg)
@@ -82,9 +83,28 @@ func main() {
 
 	// Cards
 	api.HandleFunc("/columns/{column_id}/cards", cardHandler.GetByColumn).Methods("GET")
+	api.HandleFunc("/columns/{column_id}/cards", cardHandler.GetByColumn).Methods("GET")
 	api.HandleFunc("/cards", cardHandler.Create).Methods("POST")
 	api.HandleFunc("/cards/{id}/move", cardHandler.Move).Methods("PATCH")
 	api.HandleFunc("/cards/{id}", cardHandler.Delete).Methods("DELETE")
+
+	// WebSocket: JWT передаётся query-параметром, так как браузерный WebSocket API
+	// не позволяет задать произвольный Authorization header.
+	r.HandleFunc("/ws/boards/{id}", func(w http.ResponseWriter, req *http.Request) {
+		token := req.URL.Query().Get("token")
+		userID, err := middleware.ParseToken(cfg, token)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		boardID := mux.Vars(req)["id"]
+		ok, err := boardRepo.IsMember(req.Context(), boardID, userID)
+		if err != nil || !ok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		hub.ServeBoard(w, req, boardID)
+	}).Methods("GET")
 
 	// WebSocket: JWT передаётся query-параметром, так как браузерный WebSocket API
 	// не позволяет задать произвольный Authorization header.
@@ -110,12 +130,15 @@ func main() {
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		ExposedHeaders:   []string{"Content-Length"},
+		ExposedHeaders:   []string{"Content-Length"},
 		AllowCredentials: true,
 	})
 
 	handler := c.Handler(r)
 
 	log.Printf("🚀 Server starting on http://localhost:%s", cfg.Port)
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	log.Fatal(server.ListenAndServe())
 	server := &http.Server{Addr: ":" + cfg.Port, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
 	log.Fatal(server.ListenAndServe())
 }
