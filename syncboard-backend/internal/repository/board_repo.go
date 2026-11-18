@@ -14,23 +14,27 @@ func NewBoardRepository(db *DB) *BoardRepository {
 }
 
 func (r *BoardRepository) Create(ctx context.Context, board *models.Board) error {
-	query := `
-		INSERT INTO boards (title, owner_id)
-		VALUES ($1, $2)
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	err = tx.QueryRow(ctx, `
+		INSERT INTO boards (title, owner_id) VALUES ($1, $2)
 		RETURNING id, created_at
-	`
-	err := r.db.Pool.QueryRow(ctx, query, board.Title, board.OwnerID).
-		Scan(&board.ID, &board.CreatedAt)
+	`, board.Title, board.OwnerID).Scan(&board.ID, &board.CreatedAt)
 	if err != nil {
 		return err
 	}
 
-	// Добавляем владельца как member с ролью 'admin'
-	_, err = r.db.Pool.Exec(ctx, `
-		INSERT INTO board_members (board_id, user_id, role)
-		VALUES ($1, $2, 'admin')
+	_, err = tx.Exec(ctx, `
+		INSERT INTO board_members (board_id, user_id, role) VALUES ($1, $2, 'admin')
 	`, board.ID, board.OwnerID)
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *BoardRepository) GetByID(ctx context.Context, id string) (*models.Board, error) {
@@ -64,4 +68,10 @@ func (r *BoardRepository) GetUserBoards(ctx context.Context, userID string) ([]m
 		boards = append(boards, b)
 	}
 	return boards, nil
+}
+
+func (r *BoardRepository) IsMember(ctx context.Context, boardID, userID string) (bool, error) {
+	var exists bool
+	err := r.db.Pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM board_members WHERE board_id=$1 AND user_id=$2)`, boardID, userID).Scan(&exists)
+	return exists, err
 }

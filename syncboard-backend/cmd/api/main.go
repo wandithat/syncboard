@@ -7,8 +7,10 @@ import (
 	"syncboard/internal/config"
 	"syncboard/internal/handlers"
 	"syncboard/internal/middleware"
+	"syncboard/internal/realtime"
 	"syncboard/internal/repository"
 	"syncboard/internal/service"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -31,6 +33,7 @@ func main() {
 	boardRepo := repository.NewBoardRepository(db)
 	columnRepo := repository.NewColumnRepository(db)
 	cardRepo := repository.NewCardRepository(db)
+	hub := realtime.NewHub()
 
 	// Services
 	authService := service.NewAuthService(userRepo, cfg)
@@ -38,8 +41,8 @@ func main() {
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authService)
 	boardHandler := handlers.NewBoardHandler(boardRepo)
-	columnHandler := handlers.NewColumnHandler(columnRepo)
-	cardHandler := handlers.NewCardHandler(cardRepo)
+	columnHandler := handlers.NewColumnHandler(columnRepo, boardRepo, hub)
+	cardHandler := handlers.NewCardHandler(cardRepo, columnRepo, boardRepo, hub)
 
 	// Router
 	r := mux.NewRouter()
@@ -69,21 +72,41 @@ func main() {
 	api.HandleFunc("/columns", columnHandler.Create).Methods("POST")
 
 	// Cards
-	api.HandleFunc("/columns/{column_id}/cards", cardHandler.GetByColumn)
+	api.HandleFunc("/columns/{column_id}/cards", cardHandler.GetByColumn).Methods("GET")
 	api.HandleFunc("/cards", cardHandler.Create).Methods("POST")
 	api.HandleFunc("/cards/{id}/move", cardHandler.Move).Methods("PATCH")
 	api.HandleFunc("/cards/{id}", cardHandler.Delete).Methods("DELETE")
+
+	// WebSocket: JWT передаётся query-параметром, так как браузерный WebSocket API
+	// не позволяет задать произвольный Authorization header.
+	r.HandleFunc("/ws/boards/{id}", func(w http.ResponseWriter, req *http.Request) {
+		token := req.URL.Query().Get("token")
+		userID, err := middleware.ParseToken(cfg, token)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		boardID := mux.Vars(req)["id"]
+		ok, err := boardRepo.IsMember(req.Context(), boardID, userID)
+		if err != nil || !ok {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		hub.ServeBoard(w, req, boardID)
+	}).Methods("GET")
 
 	// CORS
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
+		ExposedHeaders:   []string{"Content-Length"},
 		AllowCredentials: true,
 	})
 
 	handler := c.Handler(r)
 
 	log.Printf("🚀 Server starting on http://localhost:%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, handler))
+	server := &http.Server{Addr: ":" + cfg.Port, Handler: handler, ReadHeaderTimeout: 5 * time.Second}
+	log.Fatal(server.ListenAndServe())
 }

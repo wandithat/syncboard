@@ -3,6 +3,7 @@ module syncboard
 go 1.25.1
 
 require (
+	github.com/gorilla/websocket v1.5.3
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
