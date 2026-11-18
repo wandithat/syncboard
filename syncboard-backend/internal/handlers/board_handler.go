@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"syncboard/internal/middleware"
 	"syncboard/internal/models"
 	"syncboard/internal/repository"
@@ -26,6 +27,7 @@ func (h *BoardHandler) Create(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	req.Title = strings.TrimSpace(req.Title)
 	if req.Title == "" {
 		jsonError(w, http.StatusBadRequest, "title is required")
 		return
@@ -60,6 +62,16 @@ func (h *BoardHandler) Get(w http.ResponseWriter, r *http.Request) {
 	board, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "board not found")
+		return
+	}
+	ok, accessErr := h.repo.IsMember(r.Context(), id, middleware.GetUserID(r.Context()))
+	if accessErr != nil || !ok {
+		jsonError(w, http.StatusNotFound, "board not found")
+		return
+	}
+	board.CanInvite, err = h.repo.IsAdmin(r.Context(), id, middleware.GetUserID(r.Context()))
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "could not check board permissions")
 		return
 	}
 	jsonResponse(w, http.StatusOK, board)

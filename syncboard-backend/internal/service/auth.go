@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"net/mail"
+	"strings"
 	"time"
 
 	"syncboard/internal/config"
@@ -23,8 +25,12 @@ func NewAuthService(userRepo *repository.UserRepository, cfg *config.Config) *Au
 }
 
 func (s *AuthService) Register(ctx context.Context, email, password string) (*models.User, error) {
-	if len(password) < 6 {
-		return nil, errors.New("password must be at least 6 characters")
+	email = strings.ToLower(strings.TrimSpace(email))
+	if _, err := mail.ParseAddress(email); err != nil {
+		return nil, errors.New("invalid email address")
+	}
+	if len(password) < 8 {
+		return nil, errors.New("password must be at least 8 characters")
 	}
 
 	existing, err := s.userRepo.GetByEmail(ctx, email)
@@ -52,6 +58,7 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (*mo
 }
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (string, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if err != nil {
 		return "", err

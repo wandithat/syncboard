@@ -14,6 +14,7 @@ type Board struct {
 	Title     string    `json:"title"`
 	OwnerID   string    `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
+	CanInvite bool      `json:"can_invite,omitempty"`
 }
 
 type BoardMember struct {
@@ -68,4 +69,30 @@ type CreateCardRequest struct {
 type MoveCardRequest struct {
 	ColumnID string `json:"column_id"`
 	Position int    `json:"position"`
+}
+
+type BoardInvitation struct {
+	ID           string    `json:"id"`
+	BoardID      string    `json:"board_id"`
+	BoardTitle   string    `json:"board_title"`
+	InviteeEmail string    `json:"invitee_email"`
+	InvitedBy    string    `json:"invited_by"`
+	InviterEmail string    `json:"inviter_email,omitempty"`
+	Status       string    `json:"status"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type BoardMemberDetails struct {
+	UserID   string    `json:"user_id"`
+	Email    string    `json:"email"`
+	Role     string    `json:"role"`
+	JoinedAt time.Time `json:"joined_at"`
+}
+
+type ReorderColumnsRequest struct {
+	ColumnIDs []string `json:"column_ids"`
+}
+
+type CreateInvitationRequest struct {
+	Email string `json:"email"`
 }

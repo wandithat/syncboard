@@ -18,7 +18,7 @@ func Load() (*Config, error) {
 	_ = godotenv.Load()
 
 	dbUser := getEnv("DB_USER", "postgres")
-	dbPassword := getEnv("DB_PASSWORD", "postgres")
+	dbPassword := getEnv("DB_PASSWORD", "postgres123")
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnv("DB_PORT", "5432")
 	dbName := getEnv("DB_NAME", "syncboard")
@@ -31,7 +31,7 @@ func Load() (*Config, error) {
 
 	return &Config{
 		DatabaseURL: databaseURL,
-		JWTSecret:   getEnv("JWT_SECRET", "default-secret"),
+		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
 		Port:        getEnv("PORT", "8080"),
 	}, nil
 }

@@ -23,24 +23,25 @@ func NewDB(databaseURL string) (*DB, error) {
 	config.MinConns = 2
 	config.MaxConnLifetime = 30 * time.Minute
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		return nil, err
 	}
 
-	// Ping с retry (БД может подниматься)
-	for i := 0; i < 5; i++ {
-		if err = pool.Ping(ctx); err == nil {
+	var pingErr error
+	for i := 0; i < 10; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		pingErr = pool.Ping(ctx)
+		cancel()
+		if pingErr == nil {
 			break
 		}
-		log.Printf("Waiting for DB... attempt %d", i+1)
-		time.Sleep(2 * time.Second)
+		log.Printf("Waiting for DB... attempt %d/10: %v", i+1, pingErr)
+		time.Sleep(time.Second)
 	}
-	if err != nil {
-		return nil, err
+	if pingErr != nil {
+		pool.Close()
+		return nil, pingErr
 	}
 
 	return &DB{Pool: pool}, nil
